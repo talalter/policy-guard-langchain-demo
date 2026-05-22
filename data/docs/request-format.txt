@@ -1,0 +1,107 @@
+Fynlo API - Request Format
+===========================
+
+Overview
+--------
+Fynlo accepts JSON over HTTPS only. This document describes the headers, body
+constraints, and conventions that apply to every request regardless of endpoint.
+
+Base URLs
+---------
+  Production:  https://api.fynlo.io/v1
+  Sandbox:     https://sandbox.fynlo.io/v1
+
+All requests must use HTTPS. Plain HTTP connections are dropped at the network layer -
+Fynlo does not redirect HTTP to HTTPS.
+
+Required Headers
+----------------
+Every request must include:
+
+  X-Fynlo-Key: fk_live_...         Your API key. See authentication.txt.
+  Fynlo-Version: 2024-03           Target API version. See versioning.txt.
+
+For requests with a body (POST, PATCH, PUT):
+
+  Content-Type: application/json; charset=utf-8
+
+Omitting the Content-Type header on a request with a body returns HTTP 400 with error
+code "header_content_type_missing". The charset=utf-8 component is mandatory - sending
+Content-Type: application/json without the charset suffix also returns HTTP 400.
+
+Optional Headers
+----------------
+  Fynlo-Idempotency-Key: <string>     Safe retry key for write operations. Highly
+                                       recommended for all POST requests. See idempotency.txt.
+  Accept: application/json            Optional but recommended. Fynlo always returns JSON.
+  X-Fynlo-Sandbox-Trigger: <code>     Sandbox only. Forces specific response scenarios.
+                                       See environments.txt.
+
+HTTP Methods
+------------
+  GET      Fetch a resource or list. No request body.
+  POST     Create a resource or trigger an action. Body required.
+  PATCH    Partially update an existing resource. Body required.
+  DELETE   Remove a resource. No body. Returns HTTP 204 on success.
+  PUT      Full replacement. Available only on endpoints that explicitly document it.
+
+Always use PATCH for partial updates. PUT replaces the entire resource and is only
+available where the API reference explicitly documents it.
+
+Request Body Constraints
+------------------------
+Request bodies must be valid UTF-8 encoded JSON. Fynlo does not support
+application/x-www-form-urlencoded or multipart/form-data for standard API operations.
+For file uploads, multipart/form-data is accepted - see file-uploads.txt.
+
+Maximum request body size: 512 KB. Requests with a body larger than 512 KB return
+HTTP 413 with error code "payload_too_large".
+
+Boolean Fields
+--------------
+JSON boolean fields must use the JSON literals true or false. The string values "true",
+"false", "1", "0", and "yes" are not accepted and return HTTP 422 with "param_invalid".
+
+Null vs. Omitted Fields on PATCH
+----------------------------------
+When making PATCH requests, there is a meaningful difference between including a field
+as null and omitting it entirely:
+
+  Omitted      The existing value is left unchanged.
+  null         The field is explicitly cleared (set to its empty/unset state).
+
+To remove an optional field from a resource, send it explicitly as null. To leave it
+unchanged, omit it from the body entirely.
+
+Timestamps in Requests
+-----------------------
+All timestamp fields in request bodies must be Unix timestamps in milliseconds. This
+means a 13-digit integer. Example: 1712000000000 represents 2024-04-01T16:53:20.000Z.
+
+Sending a Unix timestamp in seconds (10-digit) or an ISO 8601 string returns HTTP 422
+with "param_invalid" and a message stating the expected format.
+
+Query Parameters
+----------------
+GET requests pass all filters and options as URL query string parameters. Parameter
+names use snake_case. Repeated parameters for multi-value inputs are not supported;
+use comma-separated values where documented.
+
+Query parameter values must be URL-encoded. Unencoded special characters (e.g., @ in
+email addresses, + in amounts) cause HTTP 400 with "malformed_query_param".
+
+Request IDs
+-----------
+Every response (success and error) includes a unique request_id in the response body
+under meta.request_id and in the X-Fynlo-Request-Id response header. Log this value
+for every API call. It is the primary identifier Fynlo support engineers use to locate
+a specific request in server logs.
+
+Example Complete Request
+------------------------
+  curl -X POST https://api.fynlo.io/v1/payments \
+    -H "X-Fynlo-Key: fk_live_a3f9c2d8e1b4..." \
+    -H "Fynlo-Version: 2024-03" \
+    -H "Content-Type: application/json; charset=utf-8" \
+    -H "Fynlo-Idempotency-Key: order_8821_attempt_1" \
+    -d '{"amount": 4999, "currency": "usd", "customer_id": "cust_01hx..."}'

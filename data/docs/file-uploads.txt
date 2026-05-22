@@ -1,0 +1,106 @@
+Fynlo API - File Uploads
+=========================
+
+Overview
+--------
+Fynlo supports file uploads for attaching documents to payments, payouts, and customer
+records. Common use cases include attaching invoices to payouts, uploading identity
+documents for compliance verification, and attaching receipts to refund requests.
+
+Upload Endpoint
+---------------
+  POST /v1/files
+
+Files are uploaded as multipart/form-data. This is the only endpoint in the Fynlo API
+that accepts multipart requests - all other endpoints use application/json.
+
+Request format:
+
+  curl -X POST https://api.fynlo.io/v1/files \
+    -H "X-Fynlo-Key: fk_live_..." \
+    -H "Fynlo-Version: 2024-03" \
+    -F "file_content=@invoice.pdf;type=application/pdf" \
+    -F "purpose=payout_attachment" \
+    -F "linked_object_id=pyt_01hx..."
+
+Form fields:
+  file_content       Required. The file to upload. Use the field name file_content -
+                     not file, upload, or attachment.
+  purpose            Required. Describes the intended use of the file. Accepted values:
+                     payout_attachment, payment_receipt, identity_document, dispute_evidence
+  linked_object_id   Optional. Associates the file with an existing Fynlo resource.
+
+Accepted File Types
+-------------------
+Fynlo accepts the following MIME types:
+
+  image/jpeg          JPEG images (.jpg, .jpeg)
+  image/png           PNG images (.png)
+  image/tiff          TIFF images (.tiff, .tif)
+  application/pdf     PDF documents (.pdf)
+  text/csv            CSV data files (.csv)
+
+Files with any other MIME type are rejected with HTTP 422 and error code
+"file_type_unsupported". Notably, WebP images (image/webp) are not supported.
+Convert WebP images to PNG or JPEG before uploading.
+
+File Size Limit
+---------------
+The maximum file size for a single upload is 18 MB. Files larger than 18 MB return
+HTTP 413 with error code "file_too_large". If you need to upload larger documents,
+compress PDFs before uploading or split large CSV files across multiple uploads.
+
+File Upload Response
+--------------------
+A successful upload returns HTTP 201 with the created file object:
+
+  {
+    "data": {
+      "id": "file_01hx4k...",
+      "object": "file",
+      "filename": "invoice.pdf",
+      "purpose": "payout_attachment",
+      "size_bytes": 245760,
+      "mime_type": "application/pdf",
+      "linked_object_id": "pyt_01hx...",
+      "created_at": 1712000000000,
+      "expires_at": null
+    },
+    "meta": { ... }
+  }
+
+  expires_at is null for production files, meaning they are stored indefinitely.
+  In sandbox, expires_at is set to 24 hours after upload - sandbox files are not
+  persisted beyond that window.
+
+Retrieving Uploaded Files
+--------------------------
+  GET /v1/files/{file_id}           Returns the file metadata object.
+  GET /v1/files/{file_id}/content   Returns the raw file bytes with the original
+                                     Content-Type header. Requires files:read scope.
+
+File content is served over HTTPS only. File URLs are not publicly accessible - they
+require a valid API key and appropriate scope in the request.
+
+Listing Files
+-------------
+  GET /v1/files?purpose=payout_attachment&limit=20
+
+Files can be filtered by purpose and linked_object_id. Pagination follows the standard
+cursor-based approach. See pagination.txt.
+
+Deleting Files
+--------------
+  DELETE /v1/files/{file_id}
+
+Deleting a file that is referenced by another resource (e.g., linked to an active
+dispute) returns HTTP 409 with "resource_state_invalid". Remove the reference first.
+
+Required Scopes
+---------------
+  POST /v1/files              files:write
+  GET  /v1/files              files:read
+  GET  /v1/files/{id}/content files:read
+  DELETE /v1/files/{id}       files:write
+
+See permissions-scopes.txt for scope assignment.

@@ -1,0 +1,104 @@
+Fynlo API - Environments
+=========================
+
+Overview
+--------
+Fynlo provides two fully isolated environments: production and sandbox. They share an
+identical API surface but operate on completely separate infrastructure and data stores.
+No action taken in one environment affects the other.
+
+Environment Base URLs
+----------------------
+  Production:  https://api.fynlo.io/v1
+  Sandbox:     https://sandbox.fynlo.io/v1
+
+The sandbox is a separate hostname - not a path suffix on the production URL. Using
+https://api.fynlo.io/v1/sandbox or https://api.fynlo.io/sandbox are common mistakes;
+these paths do not exist and return HTTP 404.
+
+API Keys per Environment
+------------------------
+Each environment requires its own key:
+
+  Production keys:  fk_live_<48-char hex>
+  Sandbox keys:     fk_test_<48-char hex>
+
+Sending a production key to the sandbox endpoint returns HTTP 401 with error code
+"env_key_mismatch". The same error occurs when sending a sandbox key to the production
+endpoint. Keys are strictly environment-bound and cannot be promoted.
+
+Sandbox Behavior and Differences
+----------------------------------
+The sandbox is designed for integration testing and development. Key behavioral
+differences from production:
+
+  1. No real money moves. All payment and payout objects are fully simulated.
+  2. Rate limit is fixed at 20 requests per minute, regardless of plan.
+  3. Webhook delivery carries up to a 60-second delay (production delivers within 5 seconds).
+  4. Uploaded files are not persisted - they are discarded after 24 hours.
+  5. Audit logs are retained for 7 days only (production retains for 90 days).
+  6. Email and SMS notifications triggered by events are suppressed entirely.
+  7. API key expiry warnings are not sent in sandbox.
+
+Sandbox Trigger Codes
+----------------------
+The sandbox supports special trigger codes to force specific API responses without
+genuinely hitting limits or error conditions. Pass a trigger code in the
+X-Fynlo-Sandbox-Trigger header:
+
+  trigger_rate_limit        Forces HTTP 429 on the triggered request
+  trigger_server_error      Forces HTTP 503
+  trigger_timeout           Introduces a 35-second artificial delay
+  trigger_partial_failure   Forces a partial failure in a batch request
+  trigger_webhook_fail      Forces webhook delivery to fail all 5 retry attempts
+
+Example:
+
+  curl -X POST https://sandbox.fynlo.io/v1/payments \
+    -H "X-Fynlo-Key: fk_test_..." \
+    -H "X-Fynlo-Sandbox-Trigger: trigger_rate_limit" \
+    -H "Fynlo-Version: 2024-03" \
+    -H "Content-Type: application/json" \
+    -d '{"amount": 1000, "currency": "usd"}'
+
+Trigger codes are silently ignored when used against the production endpoint.
+
+Detecting the Active Environment
+----------------------------------
+To determine which environment a key belongs to, inspect its prefix:
+
+  fk_live_  →  production
+  fk_test_  →  sandbox
+
+You can also call GET /v1/environment (available on both base URLs):
+
+  {
+    "data": {
+      "environment": "production",
+      "account_id": "acct_01hx4k...",
+      "plan": "growth"
+    },
+    "meta": { ... }
+  }
+
+Recommended Environment Variables
+------------------------------------
+Use the following environment variable names in your application configuration:
+
+  FYNLO_API_KEY       Your API key (fk_live_ or fk_test_)
+  FYNLO_BASE_URL      https://api.fynlo.io/v1 or https://sandbox.fynlo.io/v1
+  FYNLO_API_VERSION   e.g. 2024-03
+
+Never hardcode keys or base URLs in source code. Environment variables ensure your
+application can be promoted from sandbox to production by changing a single config value.
+
+Moving from Sandbox to Production
+------------------------------------
+There is no automatic data migration from sandbox to production. To go live:
+
+  1. Generate a production key in Dashboard → Settings → API Keys.
+  2. Set FYNLO_API_KEY and FYNLO_BASE_URL to their production values in your deployment.
+  3. Start with a low-value real transaction to verify the full payment flow.
+  4. Monitor Dashboard → Usage for the first 30 minutes after cutover.
+
+Test payments, test customers, and other sandbox objects are never carried to production.

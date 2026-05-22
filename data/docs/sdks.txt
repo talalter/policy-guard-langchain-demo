@@ -1,0 +1,142 @@
+Fynlo API - SDKs and Client Libraries
+=======================================
+
+Overview
+--------
+Fynlo provides official SDK libraries for four languages. These libraries handle
+authentication, request serialization, response parsing, error handling, automatic
+retries, and idempotency key management - reducing the amount of boilerplate you need
+to write to integrate with the API.
+
+All official SDKs are maintained by the Fynlo engineering team and are updated within
+7 days of a new API version release.
+
+Official SDKs
+-------------
+  Language     Package name              Install command
+  -------------------------------------------------------
+  Python       fynlo-python              pip install fynlo-python
+  Node.js      @fynlo/node               npm install @fynlo/node
+  Go           github.com/fynlo/fynlo-go go get github.com/fynlo/fynlo-go
+  Ruby         fynlo-ruby                gem install fynlo-ruby
+
+Fynlo does not maintain official SDKs for Java, PHP, .NET, or other languages.
+Community-maintained libraries exist for some of these - see
+https://docs.fynlo.io/sdks/community for a curated list, but Fynlo does not guarantee
+their correctness or maintenance cadence.
+
+Python SDK
+----------
+Minimum Python version: 3.9
+
+  pip install fynlo-python
+
+  import fynlo
+
+  client = fynlo.Client(
+      api_key="fk_live_...",
+      version="2024-03"
+  )
+
+  payment = client.payments.create(
+      amount=4999,
+      currency="usd",
+      customer_id="cust_01hx...",
+      idempotency_key="order_8821_attempt_1"
+  )
+  print(payment.id, payment.status)
+
+The Python SDK raises fynlo.FynloError on API errors, with .code, .message, and
+.request_id attributes. It automatically retries HTTP 429, 503, and 504 with
+exponential backoff (max 4 retries, base delay 1.5s).
+
+Node.js SDK
+-----------
+Minimum Node.js version: 16
+
+  npm install @fynlo/node
+
+  import Fynlo from '@fynlo/node';
+
+  const client = new Fynlo({
+    apiKey: 'fk_live_...',
+    version: '2024-03',
+  });
+
+  const payment = await client.payments.create({
+    amount: 4999,
+    currency: 'usd',
+    customerId: 'cust_01hx...',
+  }, {
+    idempotencyKey: 'order_8821_attempt_1',
+  });
+
+The Node SDK is fully typed with TypeScript definitions included. It uses the native
+fetch API when available (Node 18+) and falls back to node-fetch on Node 16.
+
+Go SDK
+------
+Minimum Go version: 1.21
+
+  go get github.com/fynlo/fynlo-go
+
+  import "github.com/fynlo/fynlo-go"
+
+  client := fynlo.NewClient("fk_live_...",
+      fynlo.WithVersion("2024-03"),
+  )
+
+  payment, err := client.Payments.Create(ctx, &fynlo.PaymentCreateParams{
+      Amount:   4999,
+      Currency: "usd",
+  }, fynlo.WithIdempotencyKey("order_8821_attempt_1"))
+
+Ruby SDK
+--------
+Minimum Ruby version: 3.1
+
+  gem install fynlo-ruby
+
+  require 'fynlo'
+
+  client = Fynlo::Client.new(
+    api_key: 'fk_live_...',
+    version: '2024-03'
+  )
+
+  payment = client.payments.create(
+    amount: 4999,
+    currency: 'usd',
+    idempotency_key: 'order_8821_attempt_1'
+  )
+
+SDK Configuration Options
+--------------------------
+All SDKs support these configuration options:
+
+  api_key           Required. Your fk_live_ or fk_test_ key.
+  version           Required. API version string (e.g., "2024-03").
+  base_url          Optional. Override the base URL (for sandbox or proxies).
+  timeout           Optional. Request timeout in seconds. Default: 30.
+  max_retries       Optional. Number of automatic retries. Default: 4. Set to 0 to
+                    disable automatic retries.
+  http_client       Optional. Inject a custom HTTP client (useful for testing).
+
+Using the Sandbox with SDKs
+-----------------------------
+To use the sandbox, either:
+  a) Pass a fk_test_ key - the SDK automatically routes to the sandbox base URL.
+  b) Set base_url to https://sandbox.fynlo.io/v1 explicitly.
+
+Option (a) is preferred. Option (b) is useful when you want to test against a local
+mock server.
+
+SDK Changelog and Versioning
+------------------------------
+SDK versions are independent of API versions. Each SDK uses semantic versioning
+(major.minor.patch). Always pin to a specific SDK version in production:
+
+  pip install fynlo-python==2.3.1      # Python
+  npm install @fynlo/node@3.1.0        # Node.js
+
+SDK changelogs are at https://docs.fynlo.io/sdks/changelog.

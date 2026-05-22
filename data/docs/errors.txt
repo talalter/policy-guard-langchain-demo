@@ -1,0 +1,95 @@
+Fynlo API - Errors
+===================
+
+Overview
+--------
+Fynlo uses standard HTTP status codes to signal request outcomes. Every error response
+carries a structured JSON body with a machine-readable code, a human-readable message,
+a unique request ID, and a link to detailed documentation.
+
+Error Response Format
+---------------------
+All error responses follow this exact structure:
+
+  {
+    "error": {
+      "code": "string",
+      "message": "string",
+      "request_id": "req_01hx4k...",
+      "doc_url": "https://docs.fynlo.io/errors/<code>"
+    }
+  }
+
+  code         Machine-readable string identifier. Use this in application error handling
+               logic - never branch on HTTP status code alone, as multiple error types
+               share a single status.
+  message      Human-readable explanation. This string is intended for developers, not
+               end users. It may change between API versions. Never match on message text.
+  request_id   Unique identifier for this specific request. Always log and include this
+               when contacting Fynlo support. Format: req_ followed by a 26-character ULID.
+  doc_url      Direct link to documentation for this error code with remediation steps.
+
+HTTP Status Code Reference
+---------------------------
+  200  OK                   Request succeeded.
+  201  Created              Resource was successfully created.
+  204  No Content           Request succeeded; no response body (DELETE operations).
+  207  Multi-Status         Batch request completed - check each item's status field.
+  400  Bad Request          Request is malformed: invalid JSON, missing Content-Type,
+                            or invalid query parameter format.
+  401  Unauthorized         Authentication failed. See authentication.txt.
+  403  Forbidden            Authenticated, but key lacks the required scope.
+  404  Not Found            The referenced resource does not exist.
+  409  Conflict             Resource state prevents the operation (e.g., already cancelled).
+  422  Unprocessable Entity Validation failed - request was syntactically valid but
+                            semantically incorrect (invalid amount, unsupported currency,
+                            missing required field value).
+  429  Too Many Requests    Rate limit exceeded. See rate-limiting.txt.
+  500  Internal Server Error Unexpected server-side error. Do not retry automatically.
+  503  Service Unavailable  Planned maintenance or transient outage. Retry is safe.
+  504  Gateway Timeout      Upstream system timed out. Retry is safe.
+
+Important: Fynlo uses HTTP 422 - not HTTP 400 - for all field-level validation errors.
+HTTP 400 is reserved for structural issues such as malformed JSON or a missing
+Content-Type header. This distinction matters when writing error handling logic.
+
+Error Code Reference
+--------------------
+Authentication (HTTP 401):
+  auth_key_missing          No X-Fynlo-Key header present.
+  auth_key_invalid          Key format invalid or key does not exist.
+  auth_key_expired          Key exceeded its 180-day inactivity window.
+  auth_key_revoked          Key explicitly revoked by an administrator.
+  invalid_auth_method       Authorization header used instead of X-Fynlo-Key.
+  env_key_mismatch          Key environment does not match endpoint environment.
+
+Authorization (HTTP 403):
+  auth_key_scope_denied     Key lacks the required scope for this operation.
+  account_suspended         Account suspended. Contact support@fynlo.io.
+
+Validation (HTTP 422):
+  param_required            A required field is missing from the request.
+  param_invalid             A field value is outside the allowed range or format.
+  param_unknown             An unrecognized field was included in the request body.
+  currency_unsupported      Currency code is not in Fynlo's supported currency list.
+  amount_below_minimum      Amount is below the minimum for this currency.
+  amount_above_maximum      Amount exceeds the maximum for this currency.
+
+Resource (HTTP 404 / 409):
+  resource_not_found        Resource ID does not exist or is not accessible.
+  resource_already_exists   Duplicate detected. Check idempotency key usage.
+  resource_state_invalid    Resource is in a state that disallows this operation.
+
+Server (HTTP 500 / 503 / 504):
+  internal_error            Unexpected server error. Report to Fynlo support with request_id.
+  service_unavailable       Transient outage. Retry after the Retry-After header duration.
+  gateway_timeout           Upstream timeout. Retry with exponential backoff.
+
+Retry Safety
+-------------
+  Safe to retry (with exponential backoff):   HTTP 429, 503, 504
+  Not safe to retry automatically:            HTTP 400, 401, 403, 404, 409, 422, 500
+
+HTTP 500 is explicitly not safe to retry - the server encountered an unexpected condition.
+For requests where you are uncertain whether the operation completed before a 500, use
+idempotency keys to safely retry without risking duplication. See idempotency.txt.

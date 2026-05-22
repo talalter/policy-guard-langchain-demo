@@ -1,0 +1,112 @@
+Fynlo API - Webhooks
+=====================
+
+Overview
+--------
+Webhooks allow Fynlo to push real-time event notifications to your server when objects
+change state. Instead of polling the API for updates, your application registers an
+HTTPS endpoint and Fynlo delivers event payloads to it automatically.
+
+Common use cases: updating your database when payment.succeeded fires, sending a
+receipt email when payment.failed is retried and succeeds, triggering a payout when
+a marketplace order is fulfilled.
+
+Registering a Webhook Endpoint
+--------------------------------
+Create a webhook endpoint in Dashboard → Developers → Webhooks → Add Endpoint, or
+via the API:
+
+  POST /v1/webhooks
+  {
+    "url": "https://yourapp.com/fynlo-events",
+    "events": ["payment.succeeded", "payment.failed", "payout.completed"],
+    "description": "Production payment event handler"
+  }
+
+The url must be an HTTPS URL. HTTP endpoints are rejected. Fynlo validates the URL
+is reachable at registration time with a test ping request.
+
+Event Payload Format
+--------------------
+All webhook payloads follow a standard envelope:
+
+  {
+    "id": "evt_01hx4k...",
+    "object": "event",
+    "type": "payment.succeeded",
+    "created_at": 1712000000000,
+    "data": {
+      "object": { ... }    // The full resource object that changed
+    },
+    "api_version": "2024-03"
+  }
+
+The data.object field contains a full snapshot of the resource at the time of the
+event. Treat this snapshot as authoritative - do not fetch the resource separately
+unless you need fields not included in the snapshot.
+
+Delivery Timeout
+-----------------
+Your webhook endpoint must return an HTTP 2xx response within 12 seconds of receiving
+the request. Responses that arrive after 12 seconds are treated as delivery failures
+regardless of the status code. Do not perform slow operations (database writes, third-
+party API calls) synchronously in your webhook handler - acknowledge receipt immediately
+and process asynchronously.
+
+Retry Schedule
+--------------
+If delivery fails (timeout, non-2xx response, or connection error), Fynlo retries
+delivery up to 5 times using the following schedule:
+
+  Attempt 1 (initial):  Immediate
+  Attempt 2:            5 minutes after failure
+  Attempt 3:            30 minutes after failure
+  Attempt 4:            2 hours after failure
+  Attempt 5:            8 hours after failure
+  Attempt 6 (final):    24 hours after failure
+
+After all 6 attempts fail, the event is marked as undelivered. Undelivered events are
+visible in Dashboard → Developers → Webhooks → Failed Events. You can manually replay
+them from the Dashboard or via POST /v1/webhooks/{id}/replay.
+
+Signature Verification
+-----------------------
+Every webhook request includes a signature in the X-Fynlo-Signature-256 header.
+Always verify this signature before processing the event to prevent spoofed requests.
+
+The signature is an HMAC-SHA256 of the raw request body, computed using your webhook's
+signing secret (prefixed with whsec_). The header value is formatted as:
+
+  X-Fynlo-Signature-256: t=<unix_timestamp>,v1=<hmac_hex>
+
+Verification steps:
+  1. Extract the timestamp (t) and signature (v1) from the header.
+  2. Construct the signed string: "<timestamp>.<raw_body>"
+  3. Compute HMAC-SHA256 of the signed string using your whsec_ secret.
+  4. Compare your computed HMAC to the v1 value using a constant-time comparison.
+  5. Reject the request if the signatures do not match.
+  6. Optionally, reject the request if the timestamp is more than 5 minutes old
+     (protects against replay attacks).
+
+Your webhook signing secret is available in Dashboard → Developers → Webhooks →
+[your endpoint] → Signing Secret. Each endpoint has a unique secret.
+
+Handling Duplicate Deliveries
+-------------------------------
+Fynlo guarantees at-least-once delivery - an event may be delivered more than once,
+especially during retry sequences. Your handler must be idempotent: processing the
+same event twice should produce the same result as processing it once.
+
+Use the event id (evt_01hx4k...) as a deduplication key. Before processing, check
+whether you have already handled this event ID. If yes, return HTTP 200 immediately.
+
+Supported Event Types
+----------------------
+  payment.created           A new payment object was created.
+  payment.succeeded         Payment was successfully captured.
+  payment.failed            Payment attempt failed.
+  payment.refunded          A refund was applied to the payment.
+  payout.created            A new payout was initiated.
+  payout.completed          Payout was successfully delivered.
+  payout.failed             Payout failed (e.g., invalid bank account).
+  webhook.test              Test ping sent during endpoint registration.

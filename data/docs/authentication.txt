@@ -1,0 +1,102 @@
+Fynlo API - Authentication
+===========================
+
+Overview
+--------
+All requests to the Fynlo API must be authenticated using an API key. Fynlo does not
+support session-based authentication, OAuth tokens, or cookies. Every API call must
+carry a valid key in the request header, regardless of the HTTP method or endpoint.
+
+API Key Format
+--------------
+Fynlo issues two types of keys depending on the environment:
+
+  Production keys:  fk_live_<random_48_char_hex>
+  Sandbox keys:     fk_test_<random_48_char_hex>
+
+The prefix identifies the environment. A production key sent to the sandbox endpoint,
+or a sandbox key sent to the production endpoint, returns HTTP 401 with error code
+"env_key_mismatch". Keys cannot be used across environments.
+
+Sending Your API Key
+--------------------
+Pass your key in the X-Fynlo-Key header on every request:
+
+  X-Fynlo-Key: fk_live_a3f9c2d8e1b4...
+
+Fynlo does not support the Authorization: Bearer scheme or any other Authorization
+header value. If you pass your key as Authorization: Bearer <key>, the request will
+be rejected with HTTP 401 and error code "invalid_auth_method". The only accepted
+authentication mechanism is the X-Fynlo-Key header.
+
+Key Rotation and Expiry
+-----------------------
+API keys expire automatically after 180 days of inactivity. "Inactivity" is defined
+as no successful authenticated request using that key within the 180-day window.
+Any successful request resets the expiry clock to zero.
+
+Thirty days before expiry, Fynlo sends email warnings to all account administrators.
+A second warning is sent 7 days before expiry. Both warnings are also visible in the
+Dashboard under Settings → API Keys → Expiry Status.
+
+Revoked keys return HTTP 401 immediately with error code "auth_key_revoked". There is
+no grace period after revocation. Plan key rotation into your deployment process -
+do not wait for expiry warnings.
+
+To rotate a key:
+  1. Generate a new key in Dashboard → Settings → API Keys.
+  2. Deploy your application with the new key.
+  3. Confirm the new key is receiving traffic in Dashboard → Usage.
+  4. Revoke the old key only after confirming the new key is working.
+
+Multiple Keys and Scoping
+--------------------------
+An account may hold up to 25 active API keys simultaneously. This allows you to
+issue separate keys for separate services, teams, or deployment environments without
+sharing credentials.
+
+Each key can be restricted to a subset of permissions using scopes. For example, an
+analytics service needs only payments:read - it should not hold a key with write
+access. See permissions-scopes.txt for the full scope reference.
+
+Key Metadata
+------------
+Every key carries the following metadata, visible in the Dashboard and via the API:
+
+  name          Human-readable label (e.g., "Production backend", "CI pipeline")
+  created_at    Unix timestamp (milliseconds) when the key was created
+  last_used_at  Unix timestamp (milliseconds) of the last successful request
+  scopes        List of permission scopes assigned to this key
+  ip_allowlist  Optional list of CIDR blocks from which this key may be used
+                (up to 20 CIDRs per key - see security.txt)
+
+Authentication Error Codes
+---------------------------
+Authentication failures always return HTTP 401. The error.code field identifies the cause:
+
+  auth_key_missing       No X-Fynlo-Key header was present on the request.
+  auth_key_invalid       Key format is incorrect or the key does not exist.
+  auth_key_expired       Key passed its 180-day inactivity window.
+  auth_key_revoked       Key was explicitly revoked by an account administrator.
+  invalid_auth_method    Authorization header used instead of X-Fynlo-Key.
+  env_key_mismatch       Key environment does not match the endpoint environment.
+  auth_key_scope_denied  Key exists but lacks the required scope for this endpoint.
+
+Example: Authenticated Request
+--------------------------------
+The following example shows a correctly authenticated request to list payments:
+
+  curl -X GET https://api.fynlo.io/v1/payments \
+    -H "X-Fynlo-Key: fk_live_a3f9c2d8e1b4..." \
+    -H "Fynlo-Version: 2024-03" \
+    -H "Content-Type: application/json"
+
+Security Recommendations
+------------------------
+1. Never commit API keys to source control. Use environment variables or a secrets
+   manager such as AWS Secrets Manager, HashiCorp Vault, or GCP Secret Manager.
+2. Use a separate key per service. Do not share one key across multiple applications.
+3. Scope keys to the minimum permissions they require.
+4. Enable IP allowlisting for server-side keys when your server has a fixed egress IP.
+5. Rotate keys every 90 days as a matter of policy, independent of the 180-day expiry.
+6. Audit last_used_at regularly - unexpected recent activity may indicate a compromised key.

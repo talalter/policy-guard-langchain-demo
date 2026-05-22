@@ -1,0 +1,119 @@
+Fynlo API - Response Format
+============================
+
+Overview
+--------
+All Fynlo API responses are JSON. Every response - success or error - is wrapped in a
+consistent envelope with a data payload and a meta block containing request metadata.
+
+Standard Response Envelope
+---------------------------
+  {
+    "data": { ... },
+    "meta": {
+      "request_id": "req_01hx4k2p9mbn3c7v5z...",
+      "version": "2024-03",
+      "timestamp": 1712000000000
+    }
+  }
+
+  data        The requested resource (for single-object responses) or an array of
+              resources (for list responses).
+  meta        Metadata about the request itself, independent of the resource content.
+
+meta.request_id
+---------------
+A unique identifier for this specific request. Format: req_ followed by a 26-character
+ULID (Universally Unique Lexicographically Sortable Identifier).
+
+Example: req_01hx4k2p9mbn3c7v5zjqwerty12
+
+This value is also returned in the X-Fynlo-Request-Id response header. Log it for
+every request. It is the most efficient way to locate a request when contacting Fynlo
+support or correlating your own application logs with Fynlo server logs.
+
+meta.timestamp
+--------------
+Unix timestamp in milliseconds at which the Fynlo server processed the request.
+Example: 1712000000000 represents 2024-04-01T16:53:20.000Z.
+
+All timestamps throughout Fynlo responses - in meta and within resource objects such
+as created_at, updated_at, expires_at - are Unix timestamps in milliseconds. Never
+assume seconds or ISO 8601 format. A 13-digit integer is always milliseconds.
+
+Single Resource Response
+------------------------
+Creating or fetching a single resource returns the object directly under data:
+
+  {
+    "data": {
+      "id": "pay_01hx4k...",
+      "object": "payment",
+      "amount": 4999,
+      "currency": "usd",
+      "status": "pending",
+      "created_at": 1712000000000
+    },
+    "meta": {
+      "request_id": "req_01hx4k...",
+      "version": "2024-03",
+      "timestamp": 1712000000000
+    }
+  }
+
+Every resource includes an object field identifying its type (e.g., "payment",
+"payout", "webhook"). This allows you to determine the resource type without relying
+on which endpoint was called.
+
+List Response
+-------------
+List endpoints return an array under data and a pagination block:
+
+  {
+    "data": [ { ... }, { ... } ],
+    "meta": { ... },
+    "pagination": {
+      "has_more": true,
+      "next_cursor": "csr_01hx4k...",
+      "prev_cursor": "csr_01hx3j...",
+      "count": 20,
+      "total": 142
+    }
+  }
+
+See pagination.txt for full cursor-based pagination documentation, including how to
+traverse multiple pages and handle the end of a result set.
+
+Empty Responses
+---------------
+DELETE operations return HTTP 204 with no body. Do not attempt to parse a 204 response
+body - it is always empty. Any code that reads the body of a 204 should be treated as
+a bug.
+
+Batch Responses (HTTP 207)
+--------------------------
+Batch operations return HTTP 207 Multi-Status. The response body contains a results
+array where each element corresponds to one item in the batch request. Each element
+has its own status field indicating success or failure for that item. See
+batch-operations.txt.
+
+Standard HTTP Response Headers
+--------------------------------
+Every response includes:
+
+  Content-Type: application/json; charset=utf-8
+  X-Fynlo-Request-Id: req_01hx4k...         Mirrors meta.request_id
+  X-Fynlo-RateLimit-Limit: 250              Your plan's per-minute limit
+  X-Fynlo-RateLimit-Remaining: 247          Requests left in this window
+  X-Fynlo-RateLimit-Reset: 1712000060       Window reset (Unix seconds)
+
+Field Naming and Type Conventions
+-----------------------------------
+  - All field names use snake_case.
+  - Monetary amounts are always integers in the smallest currency unit:
+    cents for USD, pence for GBP, euro cents for EUR. Fynlo never uses
+    floating-point numbers for money.
+  - Currency codes follow ISO 4217, lowercase (e.g., "usd", "eur", "gbp").
+  - Boolean fields use is_ or has_ prefixes (e.g., is_active, has_metadata).
+  - Resource IDs use a type prefix followed by a ULID (e.g., pay_01hx4k...,
+    cust_01hx3j..., evt_01hx2i...).

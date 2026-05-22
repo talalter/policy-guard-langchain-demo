@@ -1,0 +1,96 @@
+Fynlo API - Versioning
+=======================
+
+Overview
+--------
+Fynlo uses date-based API versioning. Each version represents a stable snapshot of
+the API contract. Breaking changes are never introduced into an existing version -
+they are only introduced in new versions, with advance notice.
+
+Version Format
+--------------
+Versions follow the format YYYY-MM (year and month). Examples:
+
+  2024-03    March 2024 release
+  2024-09    September 2024 release
+  2025-01    January 2025 release
+
+Fynlo does not use semantic versioning (1.0, 2.0) or single-year versions for the API.
+The YYYY-MM format makes the version's release date unambiguous.
+
+Specifying the Version
+-----------------------
+Pass the desired version in the Fynlo-Version request header on every request:
+
+  Fynlo-Version: 2024-03
+
+If you omit the Fynlo-Version header, your request is processed against the oldest
+currently supported version - not the latest. This is intentional: pinning to the
+oldest version prevents automatic upgrades from silently changing response shapes.
+
+Always set the Fynlo-Version header explicitly in your application. Never rely on
+the default behavior for production traffic.
+
+The version used to process your request is echoed back in the meta.version field
+of every response, allowing you to verify which version is active.
+
+What Constitutes a Breaking Change
+------------------------------------
+Fynlo defines the following as breaking changes that require a new version:
+
+  - Removing a field from a response object
+  - Renaming a field
+  - Changing a field's data type
+  - Changing a field from optional to required in a request
+  - Changing an HTTP status code for an existing error condition
+  - Removing an endpoint
+  - Changing pagination behavior
+
+The following are explicitly not breaking changes and may be made without a new version:
+
+  - Adding a new optional field to a response
+  - Adding a new optional request parameter
+  - Adding a new endpoint
+  - Adding a new error code (within an existing HTTP status category)
+  - Improving error messages
+
+Version Lifecycle
+-----------------
+Supported versions:
+  Fynlo maintains at least two versions simultaneously. When a new version is released,
+  the oldest supported version enters a deprecation period.
+
+Deprecation period:
+  A deprecated version remains fully functional for a minimum of 6 months after the
+  deprecation announcement. During this period, all requests to that version succeed
+  but responses include a Deprecation header:
+
+    Deprecation: true
+    Sunset: Sat, 01 Nov 2025 00:00:00 GMT
+
+  The Sunset header contains the date after which the version will no longer be
+  available. The format follows RFC 7231 date-time. See deprecation-policy.txt for
+  the full deprecation and migration process.
+
+Sunset:
+  After the sunset date, requests specifying the sunsetted version return HTTP 410 Gone
+  with error code "version_sunset". Requests without a Fynlo-Version header that
+  previously defaulted to the sunsetted version will instead default to the next oldest
+  available version.
+
+Upgrading Between Versions
+---------------------------
+  1. Review the version changelog in the Fynlo Dashboard under Developer → Changelog.
+  2. Read the migration guide for any breaking changes that affect your integration.
+  3. Test against the new version in sandbox: set Fynlo-Version to the new version
+     on sandbox requests before changing production.
+  4. Update the Fynlo-Version header in your application configuration.
+  5. Monitor error rates for 24 hours after the production change.
+
+Current and Deprecated Versions
+---------------------------------
+The currently supported versions and their sunset dates are always listed at:
+  https://docs.fynlo.io/versioning/changelog
+
+You can also query this programmatically:
+  GET /v1/version  →  returns supported versions and their sunset dates

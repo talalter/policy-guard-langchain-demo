@@ -1,0 +1,98 @@
+Fynlo API - Pagination
+=======================
+
+Overview
+--------
+All Fynlo list endpoints use cursor-based pagination. Cursors are opaque tokens that
+point to a position in the result set. Unlike offset-based pagination, cursors remain
+stable as new records are inserted - a new payment created between page 1 and page 2
+will not cause records to shift and appear duplicated or skipped.
+
+Default and Maximum Page Size
+------------------------------
+Every list endpoint returns 20 results per page by default. You can increase this
+with the limit query parameter up to a maximum of 100 results per page. Requesting
+more than 100 returns HTTP 422 with "param_invalid".
+
+  GET /v1/payments?limit=50          Returns up to 50 payments
+  GET /v1/payments?limit=100         Returns up to 100 payments (maximum)
+  GET /v1/payments?limit=200         HTTP 422 - exceeds maximum
+
+Cursor Parameters
+-----------------
+To paginate through results, use the starting_after and ending_before query parameters:
+
+  starting_after=<cursor>    Return records after this cursor (next page)
+  ending_before=<cursor>     Return records before this cursor (previous page)
+
+Do not use starting_after and ending_before in the same request - this returns HTTP 400.
+
+Pagination Response Block
+--------------------------
+Every list response includes a pagination block alongside data and meta:
+
+  {
+    "data": [ ... ],
+    "meta": { ... },
+    "pagination": {
+      "has_more": true,
+      "next_cursor": "csr_01hx4k2p9mbn3...",
+      "prev_cursor": "csr_01hx3j1q8kzm2...",
+      "count": 20,
+      "total": 142
+    }
+  }
+
+  has_more      true if there are more records beyond this page, false if this is the
+                last page.
+  next_cursor   Cursor to pass as starting_after to fetch the next page. null when
+                has_more is false.
+  prev_cursor   Cursor to pass as ending_before to fetch the previous page. null on
+                the first page.
+  count         Number of records returned in this response (may be less than limit
+                on the last page).
+  total         Total number of records in the result set matching your filters.
+                Note: total reflects the full count at query time and does not update
+                as you paginate.
+
+Traversing All Pages
+--------------------
+To iterate through all records, loop until has_more is false:
+
+  cursor = None
+  while True:
+      params = {"limit": 100}
+      if cursor:
+          params["starting_after"] = cursor
+      response = fynlo.payments.list(**params)
+      process(response["data"])
+      if not response["pagination"]["has_more"]:
+          break
+      cursor = response["pagination"]["next_cursor"]
+
+Cursor Validity
+---------------
+Cursors are valid for 24 hours from when the list response was returned. A cursor
+older than 24 hours returns HTTP 422 with error code "cursor_expired". If your
+pagination loop spans more than 24 hours, restart from the beginning or use the
+created_at filter to narrow the result set.
+
+Cursors are opaque - their internal format may change between API versions. Never
+parse or construct cursor strings manually. Always use the next_cursor value returned
+by the previous response.
+
+Filtering and Sorting with Pagination
+--------------------------------------
+Filters and sort parameters can be combined with pagination cursors. However, the
+sort order must remain consistent across pages - changing the sort direction mid-
+pagination produces unpredictable results. See filtering-sorting.txt for the full
+filter and sort syntax.
+
+Example: Paginate filtered results
+
+  # First page: payments in the last 7 days, sorted newest first
+  GET /v1/payments?limit=20&filter[status]=succeeded&sort=-created_at
+
+  # Second page using next_cursor from the first response
+  GET /v1/payments?limit=20&filter[status]=succeeded&sort=-created_at
+    &starting_after=csr_01hx4k...

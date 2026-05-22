@@ -1,0 +1,99 @@
+Fynlo API - Caching
+====================
+
+Overview
+--------
+Fynlo sets standard HTTP caching headers on responses to enable client-side and
+proxy caching. Implementing caching in your integration reduces your rate limit
+consumption and improves response times for frequently accessed data.
+
+Cache-Control Headers
+---------------------
+Fynlo sets Cache-Control on all responses. The value depends on the type of operation:
+
+  GET list endpoints:
+    Cache-Control: public, max-age=30, stale-while-revalidate=10
+
+  GET single resource endpoints:
+    Cache-Control: private, max-age=0, must-revalidate
+
+  POST, PATCH, DELETE (mutating operations):
+    Cache-Control: no-store
+
+The 30-second TTL on list endpoints is intentional. Payment and payout lists change
+frequently, and a stale window longer than 30 seconds would surface outdated data to
+your users. If you need real-time accuracy on list data, add a Cache-Control: no-cache
+header to your request to bypass the cache.
+
+Single resource responses (GET /v1/payments/{id}) use max-age=0 with must-revalidate,
+meaning they must always be revalidated with the server before use. This ensures that
+a payment's status field always reflects the current state - critical for polling
+pending payments.
+
+Mutating endpoints (POST, PATCH, DELETE) use no-store, meaning no part of the response
+should be stored by any cache. Write responses are not cacheable.
+
+ETag Support
+------------
+All Fynlo GET responses include an ETag header containing a hash of the resource state:
+
+  ETag: "d3f1a2b4c9e8..."
+
+On subsequent requests, pass the ETag value in the If-None-Match header:
+
+  If-None-Match: "d3f1a2b4c9e8..."
+
+If the resource has not changed, Fynlo returns HTTP 304 Not Modified with no body,
+saving bandwidth. If the resource has changed, Fynlo returns HTTP 200 with the
+updated resource and a new ETag.
+
+ETags are strong validators - they change whenever any field on the resource changes,
+including updated_at. Use ETags for conditional requests on frequently polled resources
+(e.g., checking payment status).
+
+Caching Behavior by Resource Type
+------------------------------------
+  Payments list:      max-age=30s - safe to cache briefly
+  Single payment:     max-age=0, must-revalidate - always revalidate
+  Payouts list:       max-age=30s - safe to cache briefly
+  Single payout:      max-age=0, must-revalidate - always revalidate
+  Webhook configs:    max-age=0, must-revalidate - always revalidate
+  API version info:   max-age=3600s - stable, cache aggressively
+
+Practical Caching Strategy
+---------------------------
+For a typical payments dashboard, the following strategy reduces request volume
+significantly:
+
+  1. On initial page load, fetch the payments list and cache it for 30 seconds
+     (the API's own Cache-Control TTL).
+
+  2. For individual payment status checks, use ETags and conditional GET requests.
+     Fynlo returns 304 if the status hasn't changed, costing one request but zero
+     bandwidth.
+
+  3. Subscribe to webhooks for state changes (payment.succeeded, payment.failed).
+     This eliminates polling entirely for high-throughput use cases.
+
+  4. Never cache write responses (POST, PATCH, DELETE). These always reflect current
+     state at the moment of the operation.
+
+Shared vs. Private Caches
+---------------------------
+  public cache:   The response may be stored by a shared proxy cache (e.g., CDN).
+                  Used on list endpoints where the response is not user-specific.
+                  Note: Fynlo list responses are scoped to your API key, so a public
+                  cache between your load balancer and API client is safe.
+
+  private cache:  Only the end client (your server) should cache this. Used on single
+                  resource responses to prevent cross-request data leakage.
+
+  no-store:       The response must not be cached by any mechanism. Used for all
+                  mutating responses and error responses.
+
+Rate Limit Impact of Caching
+------------------------------
+Cached responses that result in HTTP 304 or are served from your local cache do not
+consume your Fynlo rate limit. Only requests that reach Fynlo's servers count against
+the X-Fynlo-RateLimit-Remaining budget. Effective caching can reduce your observed
+request rate by 40-60% for read-heavy workloads.

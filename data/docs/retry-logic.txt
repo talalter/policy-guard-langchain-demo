@@ -1,0 +1,89 @@
+Fynlo API - Retry Logic
+========================
+
+Overview
+--------
+Network failures, transient server errors, and rate limiting are normal operating
+conditions in distributed systems. Your integration should handle these automatically
+using exponential backoff with jitter. This document describes which errors are safe
+to retry and the recommended retry configuration.
+
+Retryable vs. Non-Retryable Errors
+------------------------------------
+Not all errors should be retried. Retrying a non-retryable error wastes resources
+and will not succeed.
+
+  Safe to retry (transient - will likely succeed on retry):
+    HTTP 429  Too Many Requests         Wait for Retry-After header duration.
+    HTTP 503  Service Unavailable       Fynlo maintenance or transient outage.
+    HTTP 504  Gateway Timeout           Upstream system temporarily unavailable.
+
+  Not safe to retry automatically:
+    HTTP 400  Bad Request               Your request is malformed. Fix it first.
+    HTTP 401  Unauthorized              Authentication failure. Check your key.
+    HTTP 403  Forbidden                 Scope missing. Check key permissions.
+    HTTP 404  Not Found                 Resource does not exist.
+    HTTP 409  Conflict                  State conflict. Inspect the resource first.
+    HTTP 422  Unprocessable Entity      Validation failure. Fix the request.
+    HTTP 500  Internal Server Error     Unexpected error. Do not retry automatically.
+                                        Use idempotency keys if you must retry 500s.
+
+HTTP 500 is explicitly not retryable. An unexpected server error may have partially
+completed - retrying without an idempotency key risks duplicating the operation. If
+you choose to retry a 500, always use a Fynlo-Idempotency-Key. See idempotency.txt.
+
+Recommended Retry Configuration
+---------------------------------
+Maximum retries: 4 attempts (initial request + 3 retries).
+Base delay:      1.5 seconds.
+Backoff formula: delay = base_delay × (2 ^ attempt_number) + jitter
+Jitter:          Random value between 0 and 0.5 × current_delay.
+Maximum delay:   64 seconds (cap the backoff to avoid very long waits).
+
+Attempt timeline example for a retryable error:
+  Attempt 0 (initial):  Immediate
+  Attempt 1:            1.5s × 2^1 = 3s  + jitter
+  Attempt 2:            1.5s × 2^2 = 6s  + jitter
+  Attempt 3:            1.5s × 2^3 = 12s + jitter
+  Attempt 4 (final):    1.5s × 2^4 = 24s + jitter
+
+After 4 failed attempts, propagate the error to your application. Do not retry further.
+
+Handling Retry-After
+---------------------
+When Fynlo returns HTTP 429, the Retry-After header specifies how many seconds to wait
+before the next attempt. Always respect this value - it overrides your backoff schedule.
+Retrying before Retry-After elapses will continue returning 429.
+
+Example:
+  HTTP 429 Too Many Requests
+  Retry-After: 18
+
+Wait 18 seconds before the next request. Adding ±10% jitter is recommended when
+multiple service instances are backing off simultaneously.
+
+Webhook Endpoint Retry Requirements
+--------------------------------------
+If you are building a webhook receiver, Fynlo's delivery system requires that your
+endpoint respond within 10 seconds. Responses that arrive after 10 seconds are treated
+as timeouts and trigger Fynlo's retry schedule. This is separate from the client-side
+retry logic described above.
+
+For the full webhook delivery and retry schedule, see webhooks.txt.
+
+Idempotency and Retries
+------------------------
+For all POST requests that modify state (creating payments, payouts, refunds), include
+a Fynlo-Idempotency-Key before retrying. This ensures that if the original request
+succeeded but the response was lost in transit, the retry returns the original result
+rather than creating a duplicate. See idempotency.txt.
+
+Connection Timeout Configuration
+----------------------------------
+Set your HTTP client's connection timeout to at least 30 seconds. Some Fynlo operations
+(particularly large batch requests) may take up to 25 seconds to process. Aggressively
+short timeouts (e.g., 5 seconds) cause spurious failures on otherwise successful requests.
+
+Read timeout should be set independently from connection timeout. Recommended:
+  Connection timeout:  10 seconds
+  Read timeout:        30 seconds

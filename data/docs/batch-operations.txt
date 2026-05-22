@@ -1,0 +1,121 @@
+Fynlo API - Batch Operations
+==============================
+
+Overview
+--------
+The batch endpoint allows you to execute multiple API operations in a single HTTP
+request. This reduces network round trips, lowers your rate limit consumption, and
+is the recommended approach for high-volume operations such as processing bulk payouts
+or importing a list of customers.
+
+A single batch request counts as one request against your rate limit, regardless of
+how many operations it contains.
+
+Batch Endpoint
+--------------
+  POST /v1/batch
+
+The request body is an array of operations. Each operation specifies the HTTP method,
+relative path, and body:
+
+  {
+    "operations": [
+      {
+        "id": "op_1",
+        "method": "POST",
+        "path": "/v1/payments",
+        "body": { "amount": 4999, "currency": "usd", "customer_id": "cust_01hx..." }
+      },
+      {
+        "id": "op_2",
+        "method": "GET",
+        "path": "/v1/payments/pay_01hx3j..."
+      },
+      {
+        "id": "op_3",
+        "method": "PATCH",
+        "path": "/v1/payouts/pyt_01hx2i...",
+        "body": { "description": "Updated batch payout" }
+      }
+    ]
+  }
+
+  id       Client-assigned identifier for this operation. Used to match operations to
+           results in the response. Must be unique within the batch request.
+  method   HTTP method: GET, POST, PATCH, or DELETE.
+  path     Absolute path starting with /v1/. Query parameters are included inline.
+  body     Request body for POST and PATCH operations. Omit for GET and DELETE.
+
+Maximum Batch Size
+------------------
+A single batch request may contain a maximum of 75 operations. Submitting more than
+75 operations returns HTTP 422 with error code "batch_too_large". Split large
+workloads into multiple batch requests of up to 75 operations each.
+
+Batch Response Format
+---------------------
+Batch requests always return HTTP 207 Multi-Status, even if all operations succeeded:
+
+  {
+    "results": [
+      {
+        "id": "op_1",
+        "status": 201,
+        "body": { "data": { "id": "pay_01hx4k...", "object": "payment", ... }, "meta": {...} }
+      },
+      {
+        "id": "op_2",
+        "status": 200,
+        "body": { "data": { "id": "pay_01hx3j...", "object": "payment", ... }, "meta": {...} }
+      },
+      {
+        "id": "op_3",
+        "status": 422,
+        "body": { "error": { "code": "param_invalid", "message": "...", "request_id": "..." } }
+      }
+    ],
+    "meta": { "request_id": "req_01hx4k...", "version": "2024-03", "timestamp": 1712000000000 }
+  }
+
+Each result includes the operation id, the HTTP status code for that specific operation,
+and the full response body. A failed operation (e.g., op_3 with status 422) does not
+cause other operations to fail or roll back.
+
+Partial Failure Behavior
+------------------------
+Batch operations are not transactional. If op_3 fails with 422, op_1 and op_2 still
+succeed and are committed. There is no rollback mechanism. If you need all-or-nothing
+semantics, you must implement rollback logic in your application.
+
+To simulate partial failure in sandbox, pass trigger_partial_failure in the
+X-Fynlo-Sandbox-Trigger header - the batch will fail the middle third of operations.
+
+Execution Order
+---------------
+Operations within a batch are executed in the order they appear in the operations
+array. Fynlo does not parallelize batch execution. If op_2 depends on a resource
+created by op_1, place op_1 first and use the expected resource ID (if deterministic)
+or use separate sequential requests instead.
+
+Idempotency in Batches
+-----------------------
+Each operation in a batch can carry its own idempotency key by including it in the
+operation's headers object:
+
+  {
+    "id": "op_1",
+    "method": "POST",
+    "path": "/v1/payments",
+    "headers": { "Fynlo-Idempotency-Key": "order_8821_attempt_1" },
+    "body": { "amount": 4999, "currency": "usd" }
+  }
+
+Batch requests themselves are not idempotent at the batch level. If the entire batch
+request fails with HTTP 503 or 504, re-submit the full batch with idempotency keys on
+each individual write operation to prevent duplicates.
+
+Scope Requirements
+------------------
+The key used for a batch request must hold all scopes required by every operation in
+the batch. A missing scope on any single operation causes the entire batch to return
+HTTP 403 before any operations are executed. See permissions-scopes.txt.

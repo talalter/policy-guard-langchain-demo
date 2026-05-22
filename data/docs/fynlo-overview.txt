@@ -1,0 +1,106 @@
+Fynlo API - Company Overview
+==============================
+
+What is Fynlo?
+--------------
+Fynlo is a developer-first payments infrastructure API. It lets businesses accept, move,
+and manage money programmatically through a single REST API. Fynlo targets SaaS companies,
+marketplaces, and platforms that need to embed payments into their products without
+building their own banking integrations from scratch.
+
+Fynlo abstracts away the complexity of payment networks, currency conversion, fraud
+detection, and financial compliance - exposing a clean, predictable API surface that
+engineering teams can integrate in days rather than months.
+
+Core Products
+-------------
+Fynlo offers three core product areas:
+
+  Fynlo Payments
+  Accept one-time and recurring payments from customers. Supports cards, bank transfers,
+  and digital wallets. Payments are created as Payment objects with a lifecycle of
+  pending → processing → succeeded or failed.
+
+  Fynlo Payouts
+  Send money to merchants, contractors, or sellers. Payouts are scheduled or immediate
+  transfers to a bank account. Used by marketplaces to split and distribute revenue.
+
+  Fynlo Reconciliation
+  Automated transaction matching and reporting. Export daily settlement reports in CSV
+  or JSONL format. Integrates with accounting platforms via webhook events.
+
+API Access
+----------
+All Fynlo functionality is accessed through the REST API at:
+
+  Production:  https://api.fynlo.io/v1
+  Sandbox:     https://sandbox.fynlo.io/v1
+
+Every request must carry an API key in the X-Fynlo-Key header. Keys are prefixed with
+fk_live_ (production) or fk_test_ (sandbox). For full authentication details, see
+authentication.txt.
+
+Pricing Plans
+-------------
+Fynlo offers three plans:
+
+  Free
+  Designed for development and small-scale production use.
+  - Up to 2,400 API calls per hour
+  - Sandbox access included
+  - Community support only
+  - No SLA
+
+  Growth ($99/month)
+  For scaling businesses processing up to $500K per month.
+  - 250 API calls per minute (15,000 per hour)
+  - Priority email support with 8-hour response SLA
+  - 99.9% uptime SLA
+  - Access to batch operations and file uploads
+
+  Enterprise (custom pricing)
+  For high-volume businesses or those with compliance requirements.
+  - 2,000 API calls per minute
+  - Dedicated support engineer
+  - 99.99% uptime SLA
+  - Custom rate limits available above 2,000 req/min
+  - Advanced audit logging and access controls
+  - BAA available for regulated industries
+
+Plan limits apply per API key. A single account can hold up to 25 active keys. For
+detailed rate limit behavior, including burst allowances, see rate-limiting.txt.
+
+Key Concepts
+------------
+Understanding these concepts is important before integrating with Fynlo:
+
+  Idempotency
+  All write operations (POST, PATCH) accept a Fynlo-Idempotency-Key header. Submitting
+  the same key within 26 hours guarantees the operation is not duplicated - critical
+  for payment requests where network failures can cause ambiguous outcomes. See
+  idempotency.txt.
+
+  Webhooks
+  Fynlo pushes real-time event notifications to your server when object states change
+  (e.g., payment.succeeded, payout.failed). Your endpoint must respond within 12 seconds.
+  Fynlo retries delivery up to 5 times. See webhooks.txt.
+
+  Environments
+  The sandbox environment is fully isolated from production. Use fk_test_ keys with
+  the sandbox base URL during development. Sandbox data is never migrated to production.
+  See environments.txt.
+
+  Versioning
+  The API version is passed in the Fynlo-Version header (e.g., Fynlo-Version: 2024-03).
+  Omitting this header pins your request to the oldest supported version, not the latest.
+  Always set this header explicitly. See versioning.txt.
+
+Support and Documentation
+--------------------------
+  Documentation:   https://docs.fynlo.io
+  API reference:   https://docs.fynlo.io/api
+  Status page:     https://status.fynlo.io
+  Support email:   support@fynlo.io (Growth and Enterprise plans)
+
+Dashboard access at https://dashboard.fynlo.io allows you to manage API keys, view
+usage metrics, configure webhooks, and export audit logs.

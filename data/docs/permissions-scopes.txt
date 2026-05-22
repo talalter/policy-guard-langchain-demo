@@ -1,0 +1,101 @@
+Fynlo API - Permissions and Scopes
+====================================
+
+Overview
+--------
+Fynlo uses a scope-based permission system to control what each API key is allowed to
+do. Rather than issuing one all-powerful key for your entire application, you assign
+each key only the scopes it needs. This limits the blast radius if a key is compromised.
+
+Scope Format
+------------
+Scopes follow the pattern resource:action. Examples:
+
+  payments:read       Read payment objects
+  payments:write      Create and update payments
+  payouts:read        Read payout objects
+  payouts:write       Create and update payouts
+  webhooks:read       List and view webhook configurations
+  webhooks:write      Create, update, and delete webhook endpoints
+  audit_logs:read     Read audit log entries
+
+The resource is always lowercase and matches the API object name. The action is either
+read (GET requests) or write (POST, PATCH, DELETE requests).
+
+All available scopes are listed in Dashboard → Settings → API Keys → Scope Reference.
+
+Wildcard Scope
+--------------
+The wildcard scope *:* grants full access to all resources and all actions. This is
+equivalent to an admin key. Use *:* only for:
+  - Initial development before you know which scopes you need
+  - Internal tooling used only by account administrators
+
+Never use *:* for production service keys. Prefer the minimum scopes required.
+
+Assigning Scopes to a Key
+--------------------------
+Scopes are assigned at key creation time in Dashboard → Settings → API Keys → Create Key.
+You cannot add scopes to an existing key - if you need additional permissions, create
+a new key with the required scopes and deprecate the old one.
+
+This is intentional: a key's scope set is immutable after creation, so there is no
+risk of accidentally expanding a key's permissions during a configuration change.
+
+Scope Inheritance
+-----------------
+Write scopes do not automatically include read access. You must explicitly grant both
+if your integration needs both:
+
+  payments:write alone  →  Can create and update payments, cannot list them
+  payments:read alone   →  Can list and retrieve payments, cannot create them
+  Both scopes           →  Full access to payment operations
+
+When a request is made with a key that lacks the required scope, Fynlo returns HTTP 403
+with error code "auth_key_scope_denied". The error message indicates which scope was
+required.
+
+Scope Requirements per Endpoint
+---------------------------------
+  Endpoint                         Required scope
+  ------------------------------------------------
+  GET    /v1/payments              payments:read
+  POST   /v1/payments              payments:write
+  PATCH  /v1/payments/{id}         payments:write
+  GET    /v1/payouts               payouts:read
+  POST   /v1/payouts               payouts:write
+  GET    /v1/webhooks              webhooks:read
+  POST   /v1/webhooks              webhooks:write
+  DELETE /v1/webhooks/{id}         webhooks:write
+  GET    /v1/audit-logs            audit_logs:read
+  POST   /v1/batch                 Scopes of all operations in the batch
+
+Batch requests require every scope needed by every operation in the batch. If the
+batch contains a payments:write operation and a payouts:read operation, the key must
+hold both scopes. See batch-operations.txt.
+
+Multiple Scopes in a Header
+----------------------------
+A key can hold multiple scopes. Scopes are stored as a list and are evaluated
+independently per request. The separator between scopes when displayed is a space
+(e.g., "payments:read payments:write webhooks:read"). Do not use commas as separators
+when specifying scopes in the API or Dashboard - space-separated is the only accepted
+format.
+
+Auditing Scope Usage
+---------------------
+The Dashboard shows, per API key, which scopes have been exercised and when. This
+is visible under Settings → API Keys → [key name] → Scope Activity. Scopes that have
+never been used after 30 days are highlighted as candidates for removal, helping you
+tighten your key permissions over time.
+
+Recommended Key Architecture
+------------------------------
+For a typical SaaS integration, issue separate keys per service:
+
+  Backend API server:     payments:read payments:write payouts:read
+  Finance dashboard:      payments:read payouts:read audit_logs:read
+  Webhook manager:        webhooks:read webhooks:write
+  Background jobs:        payouts:write payments:read
+
+This ensures that a compromised key for one service cannot affect another.

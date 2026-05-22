@@ -1,0 +1,102 @@
+Fynlo API - Rate Limiting
+==========================
+
+Overview
+--------
+Fynlo enforces rate limits on all API endpoints to ensure platform stability and fair
+usage across all customers. Limits are applied per API key. Multiple keys on the same
+account each have their own independent limit.
+
+Rate Limit Tiers
+----------------
+Your rate limit is determined by your Fynlo plan:
+
+  Free plan:        40 requests per minute
+  Growth plan:      250 requests per minute
+  Enterprise plan:  2,000 requests per minute
+
+These limits apply across all endpoints combined - there is no per-endpoint sub-limit
+unless specifically noted in an endpoint's reference page. Listing resources and creating
+resources both consume from the same bucket.
+
+Burst Allowance
+---------------
+To accommodate short-lived traffic spikes, Fynlo allows a burst of up to 3× your plan
+limit for a maximum of 10 consecutive seconds. After the burst window, the standard
+per-minute limit is enforced.
+
+Example for the Free plan:
+  - Sustained limit:   40 req/min
+  - Burst allowance:   120 requests in any 10-second window
+  - After 10 seconds:  requests above 40/min return HTTP 429
+
+Burst capacity does not accumulate. You cannot "save up" unused requests across minutes
+to spend in a single burst.
+
+Rate Limit Response Headers
+----------------------------
+Every API response - success or error - includes the following headers:
+
+  X-Fynlo-RateLimit-Limit      Your plan's per-minute limit
+  X-Fynlo-RateLimit-Remaining  Requests remaining in the current 60-second window
+  X-Fynlo-RateLimit-Reset      Unix timestamp (seconds) when the window resets
+
+Inspect X-Fynlo-RateLimit-Remaining in your application before making requests in
+tight loops. Do not wait for a 429 to begin backing off - proactive throttling avoids
+disrupting your users.
+
+Handling HTTP 429
+-----------------
+When you exceed the rate limit, Fynlo returns:
+
+  HTTP 429 Too Many Requests
+  Retry-After: <integer seconds>
+
+The Retry-After value is in whole seconds. Wait this exact duration before retrying.
+Sending requests before Retry-After elapses continues to return 429 without resetting
+the window. Adding random jitter (±10% of the Retry-After value) is recommended to
+prevent thundering herd if multiple instances of your application back off simultaneously.
+
+Example 429 response body:
+
+  {
+    "error": {
+      "code": "rate_limit_exceeded",
+      "message": "You have exceeded your plan limit of 40 requests per minute.",
+      "request_id": "req_01hx4k2p9mbn3...",
+      "doc_url": "https://docs.fynlo.io/errors/rate_limit_exceeded"
+    }
+  }
+
+Sandbox Rate Limits
+-------------------
+The sandbox environment enforces a fixed limit of 20 requests per minute regardless of
+your plan. This cap exists to prevent sandbox abuse and cannot be increased. If your
+integration test suite hits this limit, use the trigger_rate_limit sandbox header to
+simulate 429 responses instead of genuinely exceeding the cap.
+
+See environments.txt for the full list of sandbox-specific behaviors.
+
+Endpoints Exempt from Rate Limiting
+--------------------------------------
+The following endpoints do not consume your rate limit budget:
+
+  GET /v1/health      Liveness probe - always returns HTTP 200
+  GET /v1/version     Returns current API version metadata
+
+All other endpoints are subject to rate limiting.
+
+Reducing Request Volume
+-----------------------
+If you are consistently approaching your plan limit, consider these strategies:
+
+  Use batch operations - a single POST /v1/batch request can perform up to 75
+  individual operations in one HTTP call. See batch-operations.txt.
+
+  Cache list responses - list endpoints include Cache-Control headers with a
+  30-second TTL. Client-side caching can dramatically reduce read request volume.
+  See caching.txt.
+
+  Upgrade your plan - Growth (250 req/min) and Enterprise (2,000 req/min) plans
+  are available from Dashboard → Billing → Plan. Custom limits above 2,000 req/min
+  are available by contacting Fynlo enterprise sales.

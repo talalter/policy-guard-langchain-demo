@@ -1,0 +1,116 @@
+Fynlo API - Audit Logs
+=======================
+
+Overview
+--------
+Fynlo maintains a complete, immutable audit log of all actions taken within your
+account. Every API call, Dashboard action, webhook delivery, and key creation is
+recorded. Audit logs support compliance requirements, incident investigation, and
+access monitoring.
+
+Log Retention
+-------------
+Audit logs are retained for 90 days in production. Logs older than 90 days are
+permanently deleted and cannot be recovered. If your compliance requirements mandate
+longer retention (e.g., PCI DSS, SOC 2), export logs regularly to your own storage.
+
+In the sandbox environment, audit logs are retained for 7 days only.
+
+Accessing Audit Logs
+--------------------
+  GET /v1/audit-logs
+
+Query parameters follow the standard filtering and pagination conventions. See
+filtering-sorting.txt and pagination.txt. The audit_logs:read scope is required.
+
+  GET /v1/audit-logs?filter[event_type]=payment.created&limit=50&sort=-created_at
+
+Audit Log Object Fields
+------------------------
+Each log entry contains:
+
+  {
+    "id": "log_01hx4k...",
+    "object": "audit_log",
+    "event_type": "payment.created",
+    "actor_type": "api_key",
+    "actor_id": "fk_live_a3f9c2...",
+    "actor_name": "Production backend",
+    "resource_type": "payment",
+    "resource_id": "pay_01hx3j...",
+    "ip_address": "203.0.113.42",
+    "request_id": "req_01hx4k...",
+    "changes": { ... },
+    "created_at": 1712000000000
+  }
+
+  event_type    The action that occurred (e.g., payment.created, key.revoked).
+  actor_type    Who performed the action: api_key, dashboard_user, or system.
+  actor_id      Identifier of the actor. For api_key, this is the key prefix.
+  actor_name    Human-readable label of the API key or dashboard user.
+  resource_type The type of object affected.
+  resource_id   The specific object affected.
+  ip_address    The IP address from which the request originated.
+  request_id    Correlates to the request_id in API responses and your application logs.
+  changes       A diff of fields that changed. Only present for update operations.
+  created_at    Unix timestamp in milliseconds when the action occurred.
+
+Event Types
+-----------
+  payment.*         payment.created, payment.updated, payment.succeeded, payment.failed
+  payout.*          payout.created, payout.updated, payout.completed, payout.failed
+  key.*             key.created, key.revoked, key.expired
+  webhook.*         webhook.created, webhook.deleted, webhook.delivery_failed
+  account.*         account.settings_updated, account.plan_changed
+  file.*            file.uploaded, file.deleted
+
+Filtering Audit Logs
+--------------------
+  filter[event_type]    Filter by specific event type (exact match)
+  filter[actor_id]      Filter by who performed the action
+  filter[resource_id]   Filter by the affected resource
+  filter[created_at.gte] / filter[created_at.lt]   Filter by time range
+
+Exporting Audit Logs
+--------------------
+For bulk export, use the export endpoint:
+
+  POST /v1/audit-logs/export
+  {
+    "format": "jsonl",
+    "filter": {
+      "created_at_gte": 1711929600000,
+      "created_at_lt": 1714521600000
+    }
+  }
+
+Export format: JSONL (JSON Lines) - one log entry per line. Each line is a complete,
+valid JSON object. This format is preferred over JSON arrays for large exports because
+it can be processed line-by-line without loading the entire file into memory.
+
+CSV format is not supported for audit log exports. JSONL is the only available format.
+
+Maximum export range: 31 days per request. To export more than 31 days, make multiple
+export requests with non-overlapping time ranges.
+
+Exports are processed asynchronously. The export endpoint returns an export job object:
+
+  {
+    "data": {
+      "id": "export_01hx4k...",
+      "object": "audit_log_export",
+      "status": "pending",
+      "format": "jsonl",
+      "download_url": null,
+      "created_at": 1712000000000
+    }
+  }
+
+Poll GET /v1/audit-logs/exports/{id} until status is "completed", then download from
+download_url. Download URLs expire after 1 hour.
+
+Immutability
+------------
+Audit log entries cannot be modified or deleted by API calls or Dashboard actions.
+The Fynlo system user appends to the log; no user or API key can alter existing
+entries. This immutability is a key property for compliance and forensic investigation.

@@ -1,0 +1,177 @@
+Fynlo Imagen - API Access & Security Policy
+============================================
+Version: 2024-03  |  Applies to: all integrations, agents, and automated workflows
+
+This document defines mandatory rules for any system - including AI agents and
+automated pipelines - that interacts with the Fynlo Imagen API. Violations of
+these rules are grounds for key revocation and account suspension.
+
+---
+
+SECTION 1 - DATA ACCESS
+
+Rule 1.1 - No direct database access
+All data retrieval must go through the Fynlo Imagen REST API endpoints.
+Direct database connections, database queries, or any access to Fynlo's underlying
+data stores are strictly prohibited. Agents must never instruct users to connect
+to a database, run SQL queries, or bypass the API layer for any reason.
+
+Rule 1.2 - No bulk data export without pagination
+Agents must never suggest retrieving all records in a single request. All list
+operations must use cursor-based pagination. Any instruction to "fetch all records",
+"dump the database", or "export everything at once" violates this policy.
+
+Rule 1.3 - Data must not be cached beyond TTL
+API responses include Cache-Control headers specifying the maximum time a response
+may be cached. Agents must not instruct callers to store or reuse responses beyond
+their declared TTL, and must not suggest bypassing Cache-Control directives.
+
+---
+
+SECTION 2 - AUTHENTICATION
+
+Rule 2.1 - Authentication is mandatory on every request without exception
+Every request to the Fynlo Imagen API must include a valid X-Fynlo-Key header.
+There are no unauthenticated endpoints. Internal service calls, background jobs,
+and agent-initiated requests are not exempt. Any instruction to skip, omit, or
+defer authentication is a policy violation.
+
+Rule 2.2 - The Authorization header is not an accepted authentication method
+The Fynlo Imagen API does not accept the Authorization: Bearer scheme. Agents
+must never suggest using an Authorization header. The only accepted mechanism
+is the X-Fynlo-Key header.
+
+Rule 2.3 - Keys must not be shared across environments
+Production keys (fk_live_*) must only be used against the production endpoint.
+Sandbox keys (fk_test_*) must only be used against the sandbox endpoint. Agents
+must never suggest using a production key in a development or staging context,
+or vice versa.
+
+Rule 2.4 - API keys must not be embedded in source code or logs
+Keys must be stored in environment variables or a secrets manager. Agents must
+never instruct users to hardcode an API key in source code, commit it to version
+control, or write it to a log file.
+
+---
+
+SECTION 3 - RATE LIMITS
+
+Rule 3.1 - Rate limit signals must be respected immediately
+When the API returns HTTP 429, the caller must stop making requests and wait for
+the duration specified in the Retry-After response header before retrying. Agents
+must never suggest retrying immediately after a 429, polling faster than the limit
+allows, or using multiple keys to circumvent per-account rate limits.
+
+Rule 3.2 - Rate limit circumvention is prohibited
+Spreading requests across multiple API keys, IP addresses, or accounts to bypass
+rate limits is prohibited. Agents must not suggest or describe any technique that
+has the effect of exceeding the documented rate limits for an account.
+
+---
+
+SECTION 4 - PERMISSIONS AND SCOPES
+
+Rule 4.1 - Wildcard scope (*:*) is prohibited in production
+The *:* scope grants full access to all resources. It must never be used for
+production service keys, automated workflows, or agent-controlled keys. Agents
+must not recommend *:* for any integration that runs in a production environment.
+
+Rule 4.2 - Keys must be scoped to the minimum required permissions
+Each key must hold only the scopes required for its specific function. Agents
+must not suggest issuing a key with broader scopes than the task requires.
+If an agent recommends a specific key configuration, the scopes must match
+exactly the endpoints the integration will call.
+
+Rule 4.3 - Scope cannot be added to an existing key
+A key's scope set is immutable after creation. Agents must not instruct users to
+modify the scopes of an existing key. To change permissions, a new key must be
+created and the old one deprecated.
+
+---
+
+SECTION 5 - WEBHOOK SECURITY
+
+Rule 5.1 - Webhook signatures must always be verified
+Every incoming webhook payload must have its X-Fynlo-Signature-256 header verified
+against the per-endpoint HMAC-SHA256 secret before the payload is processed.
+Agents must never instruct users to skip, defer, or conditionally bypass signature
+verification, regardless of the source IP or any other signal.
+
+Rule 5.2 - Webhook endpoints must not be publicly documented
+Webhook receiver URLs must not appear in public repositories, documentation sites,
+or API responses. Agents must not suggest exposing or sharing webhook URLs.
+
+---
+
+SECTION 6 - TRANSPORT SECURITY
+
+Rule 6.1 - All connections must use HTTPS with TLS 1.3
+Plain HTTP connections are rejected. TLS 1.2 and earlier are not accepted.
+Agents must never suggest using HTTP instead of HTTPS, and must not recommend
+disabling TLS verification (e.g., --insecure, verify=False, ssl_verify=False).
+
+Rule 6.2 - TLS certificate verification must not be disabled
+Disabling certificate verification removes protection against man-in-the-middle
+attacks and is prohibited in all environments including development and staging.
+
+---
+
+SECTION 7 - LOGGING AND DATA HANDLING
+
+Rule 7.1 - Full API response bodies containing customer data must not be logged
+Only the request_id, HTTP status code, and resource IDs may be logged. Agents
+must never suggest logging full response bodies that may contain customer PII,
+payment data, or account credentials.
+
+Rule 7.2 - Raw card numbers and CVVs are never present in API responses
+Fynlo Imagen tokenizes all card data at the point of entry. API responses contain
+only masked representations and token IDs. Agents must not suggest or imply that
+raw card numbers can be retrieved through the API.
+
+---
+
+SECTION 8 - API VERSIONING
+
+Rule 8.1 - The Fynlo-Version header is mandatory on every request
+Every request must include the Fynlo-Version header specifying the API version
+the caller was built against (e.g., Fynlo-Version: 2024-03). Agents must not
+omit this header or suggest that it is optional.
+
+Rule 8.2 - Deprecated endpoints must not be used in new integrations
+Endpoints and fields marked deprecated in the API changelog must not be used in
+new code. Agents must recommend the current replacement when a deprecated feature
+is mentioned. Deprecated features may be removed without further notice after the
+sunset date published in deprecation-policy.txt.
+
+---
+
+SECTION 9 - BATCH OPERATIONS
+
+Rule 9.1 - Batch requests are limited to 100 operations
+A single POST /v1/batch request must not contain more than 100 individual
+operations. Agents must not suggest exceeding this limit or splitting a single
+logical batch into concurrent batch requests to circumvent it.
+
+Rule 9.2 - Failed batch operations must not be silently ignored
+If one or more operations in a batch return an error, the caller must inspect
+each result individually and handle failures explicitly. Agents must not
+suggest treating a partial batch success as a complete success.
+
+---
+
+SECTION 10 - AGENT-SPECIFIC RULES
+
+Rule 10.1 - Agents must not autonomously rotate or revoke API keys
+Key rotation and revocation are administrative actions that require explicit human
+approval. An AI agent must not initiate key rotation, key creation, or key
+revocation without a direct, confirmed instruction from an authenticated human user.
+
+Rule 10.2 - Agents must not execute irreversible operations without confirmation
+DELETE operations, batch deletes, and payout initiations are irreversible. An agent
+must present the intended action to the user and receive explicit confirmation before
+making any such request to the API.
+
+Rule 10.3 - Agents must not store or transmit API keys outside the calling environment
+An AI agent handling an API key during a session must not write the key to a file,
+transmit it to an external service, include it in a generated code snippet that
+will be committed to version control, or pass it as a URL parameter.

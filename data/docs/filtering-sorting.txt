@@ -1,0 +1,110 @@
+Fynlo API - Filtering and Sorting
+===================================
+
+Overview
+--------
+All Fynlo list endpoints support filtering and sorting via query parameters. Filters
+narrow the result set to matching records. Sort parameters control the order in which
+records are returned. Both can be combined with cursor-based pagination.
+
+Filter Syntax
+-------------
+Filters use bracket notation: filter[field]=value
+
+  GET /v1/payments?filter[status]=succeeded
+  GET /v1/payments?filter[currency]=usd
+  GET /v1/payments?filter[customer_id]=cust_01hx4k...
+
+Multiple filters are ANDed together - all conditions must match:
+
+  GET /v1/payments?filter[status]=succeeded&filter[currency]=usd
+
+This returns only payments that are both succeeded AND in USD.
+
+There is no built-in OR operator for filters. To achieve OR semantics, make separate
+requests and merge results in your application.
+
+Maximum filters per request: 8. Exceeding this returns HTTP 422 with "too_many_filters".
+
+Filter Operators
+----------------
+Filters support range operators for numeric and timestamp fields using dot notation:
+
+  filter[field.gt]=value       Greater than
+  filter[field.gte]=value      Greater than or equal to
+  filter[field.lt]=value       Less than
+  filter[field.lte]=value      Less than or equal to
+
+Examples:
+
+  # Payments over $100 (amount in cents)
+  GET /v1/payments?filter[amount.gte]=10000
+
+  # Payments created in April 2024 (timestamps in milliseconds)
+  GET /v1/payments?filter[created_at.gte]=1711929600000&filter[created_at.lt]=1714521600000
+
+  # Payouts under $500
+  GET /v1/payouts?filter[amount.lt]=50000
+
+String fields (status, currency, customer_id) support only exact match - range
+operators on string fields return HTTP 422 with "filter_operator_unsupported".
+
+Filterable Fields by Resource
+-------------------------------
+  Payments:   status, currency, customer_id, amount, created_at, updated_at
+  Payouts:    status, currency, amount, created_at, scheduled_at
+  Webhooks:   status, created_at
+  Files:      purpose, linked_object_id, created_at
+  Audit logs: actor_id, event_type, resource_id, created_at
+
+Attempting to filter on an unlisted field returns HTTP 422 with "filter_field_unknown".
+
+Sort Syntax
+-----------
+Control sort order with the sort query parameter. Prefix the field name with + for
+ascending or - for descending:
+
+  sort=+created_at      Oldest first (ascending)
+  sort=-created_at      Newest first (descending)
+  sort=+amount          Smallest amount first
+  sort=-amount          Largest amount first
+
+The + prefix is optional for ascending - sort=created_at and sort=+created_at are
+equivalent. The - prefix is required for descending.
+
+Only one sort field is supported per request. Multi-column sorting is not available.
+
+Sortable Fields by Resource
+-----------------------------
+  Payments:   created_at, amount, updated_at
+  Payouts:    created_at, amount, scheduled_at
+  Files:      created_at, size_bytes
+  Audit logs: created_at
+
+Default Sort
+------------
+If no sort parameter is provided, list endpoints default to sort=-created_at (newest
+first). This default is consistent across all Fynlo list endpoints.
+
+Combining Filters, Sort, and Pagination
+-----------------------------------------
+All three can be combined in a single request:
+
+  # Succeeded USD payments over $50, newest first, page 2
+  GET /v1/payments
+    ?filter[status]=succeeded
+    &filter[currency]=usd
+    &filter[amount.gte]=5000
+    &sort=-created_at
+    &limit=20
+    &starting_after=csr_01hx4k...
+
+The sort direction must remain consistent across pages of the same result set.
+Changing the sort parameter mid-pagination produces unpredictable ordering.
+
+Filter Performance
+------------------
+Filters on created_at and indexed fields (status, currency, customer_id) are efficient.
+Filters on amount using range operators perform a full scan on large result sets and may
+be slower on accounts with millions of payments. For high-volume reporting, use Fynlo's
+Reconciliation export API instead of paginating with amount filters.

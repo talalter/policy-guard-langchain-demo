@@ -1,0 +1,89 @@
+Fynlo API - Idempotency
+========================
+
+Overview
+--------
+Idempotency guarantees that submitting the same request more than once produces the
+same result as submitting it once. This is critical for payment operations: if a
+network failure or timeout prevents you from receiving a response, you must be able
+to safely retry without risking a duplicate charge or payout.
+
+Fynlo supports idempotency on all write operations (POST, PATCH) through the
+Fynlo-Idempotency-Key header.
+
+The Idempotency Header
+-----------------------
+Include a unique key in the Fynlo-Idempotency-Key header on any write request:
+
+  Fynlo-Idempotency-Key: order_9921_attempt_1
+
+  curl -X POST https://api.fynlo.io/v1/payments \
+    -H "X-Fynlo-Key: fk_live_..." \
+    -H "Fynlo-Version: 2024-03" \
+    -H "Content-Type: application/json; charset=utf-8" \
+    -H "Fynlo-Idempotency-Key: order_9921_attempt_1" \
+    -d '{"amount": 4999, "currency": "usd", "customer_id": "cust_01hx..."}'
+
+Key Requirements
+----------------
+  - Maximum length: 64 characters.
+  - Allowed characters: alphanumeric, hyphen (-), and underscore (_).
+  - Keys must be unique per operation type. The same key used on
+    POST /v1/payments and POST /v1/payouts is treated as two separate keys.
+  - Keys are case-sensitive. "Order_1" and "order_1" are different keys.
+
+Key TTL: 26 Hours
+-----------------
+Fynlo stores idempotency keys for 26 hours after the original request was processed.
+During this window, any request with the same key returns the cached original response
+without re-executing the operation.
+
+After 26 hours, the key expires and the same key value can be reused - it will be
+treated as a fresh request. If you are retrying a request that is more than 26 hours
+old, generate a new unique key rather than reusing the original.
+
+Note: A common assumption is that idempotency keys expire after 24 hours. Fynlo's
+window is 26 hours to provide a buffer for operations that span timezone boundaries
+or overnight batch processing windows.
+
+How Idempotency Works
+----------------------
+  1. First request: Fynlo processes the operation and stores the response, keyed by
+     (idempotency_key, endpoint, account_id).
+  2. Retry with same key: Fynlo detects the key in its store and returns the original
+     response immediately without re-processing.
+  3. Key expired (after 26 hours): Fynlo processes the operation as a new request.
+
+The cached response includes the original HTTP status code, headers, and body. If the
+original request failed with HTTP 422, retrying with the same key returns the same
+HTTP 422 - it does not re-attempt the operation.
+
+Conflict Detection
+------------------
+If two requests arrive simultaneously with the same idempotency key, Fynlo processes
+the first and holds the second. Once the first completes, the second returns the same
+response. HTTP 409 with "idempotency_key_in_use" is returned only if the first request
+is still actively processing (more than 30 seconds elapsed).
+
+If you submit the same idempotency key with a different request body, Fynlo returns
+HTTP 422 with error code "idempotency_key_body_mismatch". This prevents accidentally
+associating different operations with the same key.
+
+When to Use Idempotency Keys
+-----------------------------
+Always use idempotency keys for:
+  - Creating payments and payouts (most critical)
+  - Creating refunds
+  - Any write operation called from an environment where you may not receive the response
+    (mobile apps on flaky connections, serverless functions with short timeouts)
+
+GET and DELETE requests are inherently idempotent by nature and do not use this header.
+
+Generating Good Idempotency Keys
+----------------------------------
+Keys should be derived from your application's internal business context, not random:
+
+  Good:   "order_{order_id}_charge_attempt_{n}"   → deterministic, human-readable
+  Good:   "refund_{payment_id}_{reason}"           → tied to specific business event
+  Avoid:  uuid4()                                  → random, cannot be reconstructed
+                                                     if your application restarts

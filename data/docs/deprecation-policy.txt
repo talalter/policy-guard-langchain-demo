@@ -1,0 +1,118 @@
+Fynlo API - Deprecation Policy
+================================
+
+Overview
+--------
+Fynlo is committed to giving developers sufficient time to migrate away from deprecated
+API features before they are removed. This document describes how deprecations are
+announced, how long they last, and how to identify and handle deprecated features in
+your integration.
+
+Definition: Breaking Change
+----------------------------
+Fynlo defines the following as breaking changes that require a deprecation period
+before removal:
+
+  - Removing a field from a response object
+  - Renaming an existing field
+  - Changing a field's data type (e.g., string → integer)
+  - Making an optional request field required
+  - Changing an HTTP status code for an existing error condition
+  - Removing a query parameter
+  - Removing an endpoint entirely
+  - Changing the behavior of an existing parameter
+
+The following are NOT breaking changes and may be deployed without notice:
+
+  - Adding a new optional field to a response
+  - Adding a new optional request parameter
+  - Adding a new endpoint
+  - Adding a new error code (within the same HTTP status category)
+  - Improving error message clarity
+  - Fixing a bug where the API was not behaving as documented
+
+Minimum Deprecation Period
+---------------------------
+Fynlo guarantees a minimum deprecation period of 6 months between the deprecation
+announcement and the feature's sunset date. The 6-month period begins from the date
+the official deprecation notice is published, not from when you personally become
+aware of it.
+
+Subscribe to announcements at https://docs.fynlo.io/changelog and configure email
+alerts in Dashboard → Settings → Notifications to receive deprecation notices as
+soon as they are published.
+
+Deprecation Signals in API Responses
+--------------------------------------
+When a feature you are using has been deprecated, Fynlo includes two HTTP headers
+in relevant responses:
+
+  Deprecation: true
+  Sunset: Sat, 01 Nov 2025 00:00:00 GMT
+
+  Deprecation  Boolean flag. Always "true" when present. Indicates the feature or
+               version being used is deprecated.
+
+  Sunset       The exact date and time after which the feature will no longer be
+               available. Format follows RFC 7231 date-time (e.g., RFC 822 with
+               GMT timezone). This is a hard deadline.
+
+Monitor these headers in your integration. Log a warning when either header is present
+so your team has advance notice before the deadline.
+
+After the Sunset Date
+---------------------
+After the sunset date:
+  - Requests to deprecated API versions return HTTP 410 Gone with error code
+    "version_sunset".
+  - Requests using deprecated fields or parameters behave as if the deprecated
+    feature never existed (fields are ignored; endpoints return 404).
+
+There is no grace period after the sunset date. Plan your migration to complete
+at least 2 weeks before the deadline to allow buffer for unexpected issues.
+
+Types of Deprecation
+--------------------
+  Version deprecation:   An entire API version (e.g., 2023-06) is being retired.
+                         Migrate by updating the Fynlo-Version header. See versioning.txt.
+
+  Field deprecation:     A specific request or response field is being removed.
+                         The Deprecation header appears on requests that use
+                         or return the deprecated field. The changelog specifies
+                         the replacement field.
+
+  Endpoint deprecation:  An entire endpoint is being replaced.
+                         The Deprecation header appears on all responses from
+                         the deprecated endpoint. The changelog specifies the
+                         replacement endpoint.
+
+Finding What Is Deprecated
+---------------------------
+  1. Changelog:      https://docs.fynlo.io/changelog - lists all active deprecations
+                     with their sunset dates and migration guides.
+  2. Dashboard:      Developer → Deprecation Notices - shows deprecations affecting
+                     your account based on your recent API usage.
+  3. Response headers: Monitor Deprecation and Sunset headers in your application logs.
+
+Migration Guides
+----------------
+For every deprecation, Fynlo publishes a migration guide in the changelog. Guides
+include:
+  - What is being removed and why
+  - The recommended replacement
+  - A before/after code example
+  - The migration deadline (sunset date)
+
+If a migration guide is unclear or the suggested replacement does not cover your use
+case, contact support@fynlo.io before the sunset date. Fynlo engineering can provide
+guidance or, in exceptional cases, extend the sunset date for specific accounts.
+
+Emergency Deprecations
+-----------------------
+In rare cases involving critical security vulnerabilities, Fynlo may deprecate a
+feature with less than the standard 6-month notice. In such cases, Fynlo will:
+  - Notify all affected account administrators by email within 24 hours
+  - Publish a security advisory at status.fynlo.io
+  - Provide an expedited migration path with dedicated support
+
+Emergency deprecations are rare and reserved for genuine security emergencies only.

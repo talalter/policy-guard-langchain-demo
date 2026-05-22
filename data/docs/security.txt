@@ -1,0 +1,100 @@
+Fynlo API - Security
+=====================
+
+Overview
+--------
+This document describes Fynlo's security controls and the configuration options
+available to harden your integration. Understanding these controls is important both
+for protecting your account and for passing security reviews in regulated industries.
+
+Transport Security
+------------------
+All communication with the Fynlo API must use HTTPS. Plain HTTP connections are
+rejected at the network layer. Fynlo requires a minimum TLS version of 1.3 on all
+connections. Clients attempting to connect with TLS 1.2 or earlier will have their
+connection terminated during the handshake.
+
+If your HTTP client or infrastructure cannot negotiate TLS 1.3, you must upgrade it
+before integrating with Fynlo. TLS 1.2 support was removed in the 2024-03 API version.
+
+Certificate Pinning
+-------------------
+Fynlo's API domain (api.fynlo.io) uses a certificate pinned to the following
+SHA-256 fingerprint:
+
+  AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99
+
+For environments that implement certificate pinning (mobile apps, embedded systems),
+update your pinned certificate at least 30 days before Fynlo announces a certificate
+rotation. Certificate rotation notices are published at status.fynlo.io and sent to
+account administrator email addresses.
+
+IP Allowlisting
+---------------
+You can restrict an API key to accept requests only from specific IP addresses or
+CIDR blocks. Any request from an IP not in the allowlist returns HTTP 401 with
+error code "ip_not_allowlisted".
+
+Configuration:
+  - Up to 20 CIDR blocks per API key.
+  - Both IPv4 and IPv6 CIDRs are supported.
+  - Set via Dashboard → Settings → API Keys → [key] → IP Allowlist.
+  - Changes take effect within 60 seconds.
+
+Example allowed CIDRs:
+  203.0.113.0/24    All IPs in your datacenter's egress range
+  198.51.100.42/32  A single specific IP address
+
+IP allowlisting is strongly recommended for all production server-side keys. Keys
+that are not IP-restricted have a broader attack surface if leaked.
+
+API Key Security
+----------------
+API keys are the only authentication credential for the Fynlo API. Protecting them
+is critical.
+
+  - Keys inactive for more than 26 weeks are automatically revoked. This is
+    enforced as a security measure - dormant keys are a common attack vector.
+  - Keys cannot be retrieved after their initial creation. If you lose a key,
+    revoke it and generate a new one.
+  - Key values are displayed only once in the Dashboard at creation time.
+    Fynlo stores only a hashed representation - the plaintext is never stored.
+
+For key rotation best practices, see authentication.txt.
+
+Webhook Security
+----------------
+All webhook payloads are signed with HMAC-SHA256 using a per-endpoint secret. Always
+verify the X-Fynlo-Signature-256 header before processing webhook events. Skipping
+signature verification exposes your application to spoofed requests from anyone who
+knows your webhook URL.
+
+See webhooks.txt for step-by-step signature verification instructions.
+
+Sensitive Data Handling
+------------------------
+Fynlo does not store raw card numbers (PANs) or CVVs. All card data is tokenized at
+the point of entry. API responses never include raw card numbers - only masked
+representations (e.g., last four digits) and Fynlo token IDs.
+
+Do not log full API response bodies if they contain customer data. Log only the
+request_id, HTTP status, and resource IDs.
+
+Account-Level Security Settings
+---------------------------------
+Available in Dashboard → Settings → Security:
+
+  Two-factor authentication (2FA)      Require 2FA for all dashboard users
+  Session timeout                      Auto-logout after inactivity (minimum: 15 minutes)
+  Audit log email alerts               Email notifications for key.created and key.revoked events
+  Allowed IP ranges for dashboard      Restrict Dashboard access by IP (separate from API key allowlisting)
+
+Security Incident Response
+---------------------------
+If you believe an API key has been compromised:
+  1. Immediately revoke the key in Dashboard → Settings → API Keys.
+  2. Generate a replacement key and deploy it.
+  3. Review the audit log (GET /v1/audit-logs) for activity from the compromised key.
+  4. Contact security@fynlo.io if you believe customer data was accessed.
+
+Fynlo's security team responds to reported incidents within 4 hours on business days.
